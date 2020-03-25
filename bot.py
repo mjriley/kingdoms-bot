@@ -5,9 +5,11 @@ import discord
 import random
 from discord.ext import commands
 
-# from dotenv import load_dotenv
+if os.getenv('HEROKU') is None:
+    print('Loading debug environment!')
+    from dotenv import load_dotenv
+    load_dotenv()
 
-# load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 client = commands.Bot(command_prefix='!')
@@ -76,7 +78,7 @@ async def on_ready():
 
 async def send_roles(ctx):
     print('Author is: ', ctx.author)
-    await ctx.author.send('Roles sent!')
+    return await ctx.author.send('Roles sent!')
 
 
 async def send_about(ctx):
@@ -93,14 +95,13 @@ If you wish to prevent someone from being king, you can use the alternate syntax
 i.e. `!kingdoms new @player2 @player3 @player4 -- @player1 @player5`
 would ensure that both player1 and player5 are not king
     '''
-    await ctx.author.send(about)
+    return await ctx.author.send(about)
 
 
 async def new_game(ctx, *args):
     num_players = len([arg for arg in args if arg != SEPARATOR])
     if num_players < 5 or num_players > 6:
-        await ctx.send(f'**ERROR**! Invalid number of players: {num_players}. Kingdoms can only be played with 5 or 6 players.')
-        return
+        return await ctx.send(f'**ERROR**! Invalid number of players: {num_players}. Kingdoms can only be played with 5 or 6 players.')
 
     converter = commands.MemberConverter()
 
@@ -110,15 +111,16 @@ async def new_game(ctx, *args):
         if arg == SEPARATOR:
             real_users.append(arg)
         else:
-            try:
-                await converter.convert(ctx, arg)
-            except Exception:
+            if not await is_valid_user(ctx, arg):
                 invalid_users.append(arg)
+            # try:
+            #     await converter.convert(ctx, arg)
+            # except Exception:
+            #     invalid_users.append(arg)
 
     if len(invalid_users) > 0:
-        await ctx.send(
+        return await ctx.send(
             f'Invalid users specified: {", ".join(invalid_users)}. Please specify discord users on this server, using the `@User` syntax')
-        return
 
     real_users = [await converter.convert(ctx, user) if user != SEPARATOR else SEPARATOR for user in args]
 
@@ -127,12 +129,6 @@ async def new_game(ctx, *args):
     rules = create_rules_embed(num_players)
 
     for user in roles:
-        # try:
-        #     real_user = await converter.convert(ctx, user)
-        #     print('User is: ', real_user)
-        # except Exception:
-        #     print(f'User: {user} not found')
-
         role = ROLES[roles[user]]
         e = discord.Embed(
             title=role['title'], description=role['description'], color=role['color'])
@@ -140,17 +136,26 @@ async def new_game(ctx, *args):
             url=role['thumbnail'])
         await user.send(embed=e)
         await user.send(embed=rules)
-        # await ctx.send(embed=e)
-        # await ctx.send(embed=rules)
 
     await ctx.send(f'{king.mention} is the King! Long live the King!')
 
 
+async def is_valid_user(ctx, user_name):
+    converter = commands.MemberConverter()
+    try:
+        await converter.convert(ctx, user_name)
+        return True
+    except Exception:
+        return False
+
+HELP_MESSAGE = 'Please use "!kingdoms about" for more information'
+ERROR_MESSAGE = f'Invalid command specified. {HELP_MESSAGE}'
+
+
 @client.command(name='kingdoms')
 async def kingdoms(ctx, *args):
-    '''
-    A Test Help Message
-    '''
+    if len(args) == 0:
+        return await ctx.send(ERROR_MESSAGE)
 
     command = args[0]
     if command.lower() == 'about':
@@ -159,6 +164,13 @@ async def kingdoms(ctx, *args):
     elif command.lower() == 'new':
         await new_game(ctx, *args[1:])
         return
+    else:
+        if await is_valid_user(ctx, command):
+            return await new_game(ctx, *args)
+        else:
+            return await ctx.send(ERROR_MESSAGE)
+
+kingdoms.__doc__ = HELP_MESSAGE
 
 SEPARATOR = '--'
 NOT_FOUND = -1
